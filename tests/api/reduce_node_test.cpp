@@ -15,6 +15,8 @@
 #include <thrill/api/reduce_by_key.hpp>
 #include <thrill/api/reduce_to_index.hpp>
 
+#include <thrill/common/logger.hpp>
+
 #include <algorithm>
 #include <string>
 #include <utility>
@@ -124,6 +126,7 @@ public:
         }
     }
 };
+
 
 TEST(ReduceNode, ReduceModuloPairsCorrectResults) {
     api::RunLocalTests(

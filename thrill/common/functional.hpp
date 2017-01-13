@@ -124,8 +124,7 @@ public:
 //! std::vector<U> with different type.
 template <typename Type, typename Functor>
 inline auto MapVector(const std::vector<Type>&input, const Functor &f)
-->std::vector<typename std::result_of<Functor(Type)>::type>
-{
+->std::vector<typename std::result_of<Functor(Type)>::type>{
     std::vector<typename std::result_of<Functor(Type)>::type> output;
     output.reserve(input.size());
     for (typename std::vector<Type>::const_iterator it = input.begin();
