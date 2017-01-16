@@ -95,7 +95,10 @@ set(THRILL_LINK_LIBRARIES "")
 
 if(NOT MSVC)
   # enable warnings
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y -msse4.2 -mcrc32 -g -W -Wall -Wextra -fPIC")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y -msse4.2 -g -W -Wall -Wextra -fPIC")
+  if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcrc32")
+  endif()
 
   # enable more warnings
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wpedantic")
