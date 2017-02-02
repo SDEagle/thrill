@@ -1504,6 +1504,14 @@ public:
     template <typename ZipFunction>
     auto ZipWithIndex(const ZipFunction &zip_function) const;
 
+    auto Uniq() const {
+        return ReduceByKey(
+            [](const ValueType_ value) { return value; },
+            [](const ValueType_ value, const ValueType_) {
+                return value;
+            });
+    };
+
     /*!
      * Sort is a DOp, which sorts a given DIA according to the given compare_function.
      *
