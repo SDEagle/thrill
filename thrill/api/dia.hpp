@@ -1334,6 +1334,14 @@ public:
     template <typename ZipFunction>
     auto ZipWithIndex(const ZipFunction &zip_function) const;
 
+    auto Uniq() const {
+        return ReduceByKey(
+            [](const ValueType_ value) { return value; },
+            [](const ValueType_ value, const ValueType_) {
+                return value;
+            });
+    };
+
     /*!
      * Performs an inner join between this DIA and the DIA given in the first
      * parameter. The key from each DIA element is hereby extracted with a key
