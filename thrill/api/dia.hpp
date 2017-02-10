@@ -746,6 +746,19 @@ public:
     //! \name Distributed Operations (DOps)
     //! \{
 
+    template <
+        typename SecondDIA,
+        typename KeyExtractor1,
+        typename KeyExtractor2,
+        typename JoinFunction,
+        typename HashFunction =
+            std::hash<typename common::FunctionTraits<KeyExtractor1>::result_type> >
+    auto InnerJoin(
+        const SecondDIA &second_dia,
+        const KeyExtractor1 &key_extractor1, const KeyExtractor2 &key_extractor2,
+        const JoinFunction &join_function,
+        const HashFunction& hash_function = HashFunction()) const;
+
     /*!
      * ReduceByKey is a DOp, which groups elements of the DIA with the
      * key_extractor and reduces each key-bucket to a single element using the

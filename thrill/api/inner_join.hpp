@@ -835,6 +835,26 @@ auto InnerJoin(
         join_function, hash_function);
 }
 
+
+template <typename ValueType, typename Stack>
+template <
+    typename SecondDIA,
+    typename KeyExtractor1,
+    typename KeyExtractor2,
+    typename JoinFunction,
+    typename HashFunction>
+auto DIA<ValueType, Stack>::InnerJoin(
+    const SecondDIA &second_dia,
+    const KeyExtractor1 &key_extractor1, const KeyExtractor2 &key_extractor2,
+    const JoinFunction &join_function,
+    const HashFunction& hash_function) const {
+    // forward to method _with_ location detection ON
+    return thrill::api::InnerJoin(
+        LocationDetectionTag,
+        *this, second_dia, key_extractor1, key_extractor2,
+        join_function, hash_function);
+}
+
 //! \}
 
 } // namespace api
