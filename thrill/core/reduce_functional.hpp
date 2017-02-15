@@ -76,6 +76,59 @@ private:
     HashFunction hash_function_;
 };
 
+template <typename Key, typename PartitionFunction, typename HashFunction = std::hash<Key> >
+class ReduceByPartition
+{
+public:
+    struct Result {
+        //! which partition number the item belongs to.
+        size_t partition_id;
+        //! remaining hash bits for local index
+        size_t remaining_hash;
+
+        //! calculate local index into a partition containing a hash table of
+        //! smaller size
+        size_t local_index(size_t size) const {
+            return remaining_hash % size;
+        }
+    };
+
+    explicit ReduceByPartition(
+        const PartitionFunction& partition_function,
+        const HashFunction& hash_function = HashFunction())
+        : ReduceByPartition(/* salt */ 0, partition_function, hash_function) { }
+
+    explicit ReduceByPartition(
+        const uint64_t& salt,
+        const PartitionFunction& partition_function,
+        const HashFunction& hash_function = HashFunction())
+        : salt_(salt), partition_function_(partition_function), hash_function_(hash_function) { }
+
+    ReduceByPartition(
+        const uint64_t& salt, const ReduceByPartition& other)
+        : salt_(salt), partition_function_(other.partition_function_), hash_function_(other.hash_function_) { }
+
+    Result operator () (
+        const Key& k,
+        const size_t& num_partitions,
+        const size_t& /* num_buckets_per_partition */,
+        const size_t& /* num_buckets_per_table */) const {
+
+        uint64_t hash = common::Hash128to64(salt_, hash_function_(k));
+        size_t partition_id = partition_function_(k, num_partitions);
+        if (salt_ > 0) {
+            return Result { hash % num_partitions, hash / num_partitions };
+        } else {
+            return Result { partition_id, hash };
+        }
+    }
+
+private:
+    uint64_t salt_;
+    PartitionFunction partition_function_;
+    HashFunction hash_function_;
+};
+
 /*!
  * A reduce index function, which determines a bucket depending on the current
  * index range [begin,end). It is used by ReduceToIndex.

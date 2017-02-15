@@ -759,6 +759,14 @@ public:
         const JoinFunction &join_function,
         const HashFunction& hash_function = HashFunction()) const;
 
+    template <typename KeyExtractor, typename ReduceFunction, typename PartitionFunction,
+              typename ReduceConfig = class DefaultReduceConfig>
+    auto ReduceByPartition(
+        const KeyExtractor &key_extractor,
+        const ReduceFunction &reduce_function,
+        const PartitionFunction& partition_function,
+        const ReduceConfig& reduce_config = ReduceConfig()) const;
+
     /*!
      * ReduceByKey is a DOp, which groups elements of the DIA with the
      * key_extractor and reduces each key-bucket to a single element using the

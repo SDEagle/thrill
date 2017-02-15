@@ -59,8 +59,8 @@ class DefaultReduceConfig : public core::DefaultReduceConfig
 template <typename ValueType,
           typename KeyExtractor, typename ReduceFunction,
           typename ReduceConfig, typename KeyHashFunction,
-          typename KeyEqualFunction, const bool VolatileKey,
-          bool UseDuplicateDetection>
+          typename HashIndexFunction, typename KeyEqualFunction,
+          const bool VolatileKey, bool UseDuplicateDetection>
 class ReduceNode final : public DOpNode<ValueType>
 {
 private:
@@ -74,8 +74,6 @@ private:
     using TableItem =
               typename common::If<
                   VolatileKey, std::pair<Key, ValueType>, ValueType>::type;
-
-    using HashIndexFunction = core::ReduceByHash<Key, KeyHashFunction>;
 
     static constexpr bool use_mix_stream_ = ReduceConfig::use_mix_stream_;
     static constexpr bool use_post_thread_ = ReduceConfig::use_post_thread_;
@@ -104,6 +102,7 @@ public:
                const ReduceFunction& reduce_function,
                const ReduceConfig& config,
                const KeyHashFunction& key_hash_function,
+               const HashIndexFunction& hash_index_function,
                const KeyEqualFunction& key_equal_function)
         : Super(parent.ctx(), label, { parent.id() }, { parent.node() }),
           mix_stream_(use_mix_stream_ ?
@@ -115,12 +114,12 @@ public:
           pre_phase_(
               context_, Super::id(), parent.ctx().num_workers(),
               key_extractor, reduce_function, emitters_, config,
-              HashIndexFunction(key_hash_function), key_equal_function,
+              hash_index_function, key_equal_function,
               key_hash_function),
           post_phase_(
               context_, Super::id(), key_extractor, reduce_function,
               Emitter(this), config,
-              HashIndexFunction(key_hash_function), key_equal_function)
+              hash_index_function, key_equal_function)
     {
         // Hook PreOp: Locally hash elements of the current DIA onto buckets and
         // reduce each bucket to a single value, afterwards send data to another
@@ -316,6 +315,8 @@ auto DIA<ValueType, Stack>::ReduceByKey(
     using DOpResult
               = typename common::FunctionTraits<ReduceFunction>::result_type;
 
+    using Key = typename common::FunctionTraits<KeyExtractor>::result_type;
+
     static_assert(
         std::is_convertible<
             ValueType,
@@ -345,13 +346,68 @@ auto DIA<ValueType, Stack>::ReduceByKey(
 
     using ReduceNode = api::ReduceNode<
               DOpResult, KeyExtractor, ReduceFunction, ReduceConfig,
-              KeyHashFunction, KeyEqualFunction,
+              KeyHashFunction, core::ReduceByHash<Key, KeyHashFunction>, KeyEqualFunction,
               VolatileKeyValue, DuplicateDetectionValue>;
 
     auto node = common::MakeCounting<ReduceNode>(
         *this, "ReduceByKey",
         key_extractor, reduce_function, reduce_config,
-        key_hash_function, key_equal_funtion);
+        key_hash_function, core::ReduceByHash<Key, KeyHashFunction>(key_hash_function), key_equal_funtion);
+
+    return DIA<DOpResult>(node);
+}
+
+template <typename ValueType, typename Stack>
+template <typename KeyExtractor, typename ReduceFunction, typename PartitionFunction, typename ReduceConfig>
+auto DIA<ValueType, Stack>::ReduceByPartition(
+    const KeyExtractor &key_extractor,
+    const ReduceFunction &reduce_function,
+    const PartitionFunction& partition_function,
+    const ReduceConfig &reduce_config) const {
+    assert(IsValid());
+
+    using DOpResult = typename common::FunctionTraits<ReduceFunction>::result_type;
+
+    using Key = typename common::FunctionTraits<KeyExtractor>::result_type;
+
+    static_assert(
+        std::is_convertible<
+            ValueType,
+            typename common::FunctionTraits<ReduceFunction>::template arg<0>
+            >::value,
+        "ReduceFunction has the wrong input type");
+
+    static_assert(
+        std::is_convertible<
+            ValueType,
+            typename common::FunctionTraits<ReduceFunction>::template arg<1>
+            >::value,
+        "ReduceFunction has the wrong input type");
+
+    static_assert(
+        std::is_same<
+            DOpResult,
+            ValueType>::value,
+        "ReduceFunction has the wrong output type");
+
+    static_assert(
+        std::is_same<
+            typename std::decay<typename common::FunctionTraits<KeyExtractor>::
+                                template arg<0> >::type,
+            ValueType>::value,
+        "KeyExtractor has the wrong input type");
+
+    using ReduceNode = api::ReduceNode<
+              DOpResult, KeyExtractor, ReduceFunction, ReduceConfig,
+              std::hash<Key>, core::ReduceByPartition<Key, PartitionFunction>, std::equal_to<Key>,
+              false, false>;
+
+    auto node = common::MakeCounting<ReduceNode>(
+        *this, "ReduceByKey",
+        key_extractor, reduce_function, reduce_config,
+        std::hash<Key>(),
+        core::ReduceByPartition<Key, PartitionFunction, std::hash<Key>>(partition_function, std::hash<Key>()),
+        std::equal_to<Key>());
 
     return DIA<DOpResult>(node);
 }
@@ -412,6 +468,7 @@ auto DIA<ValueType, Stack>::ReducePair(
     using DOpResult
               = typename common::FunctionTraits<ReduceFunction>::result_type;
 
+
     static_assert(common::is_std_pair<ValueType>::value,
                   "ValueType is not a pair");
 
@@ -445,13 +502,13 @@ auto DIA<ValueType, Stack>::ReducePair(
     using ReduceNode = api::ReduceNode<
               ValueType,
               decltype(key_extractor), decltype(reduce_pair_function),
-              ReduceConfig, KeyHashFunction, KeyEqualFunction,
+              ReduceConfig, KeyHashFunction, core::ReduceByHash<size_t, KeyHashFunction>, KeyEqualFunction,
               /* VolatileKey */ false, DuplicateDetectionValue>;
 
     auto node = common::MakeCounting<ReduceNode>(
         *this, "ReducePair",
         key_extractor, reduce_pair_function, reduce_config,
-        key_hash_function, key_equal_funtion);
+        key_hash_function, core::ReduceByHash<size_t, KeyHashFunction>(key_hash_function), key_equal_funtion);
 
     return DIA<ValueType>(node);
 }
