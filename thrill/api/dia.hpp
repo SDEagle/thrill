@@ -1246,6 +1246,24 @@ public:
         const ValueType& neutral_element = ValueType(),
         const ReduceConfig& reduce_config = ReduceConfig()) const;
 
+    template <typename ReduceFunction,
+              typename ReduceConfig = class DefaultReduceToIndexConfig>
+    auto ReducePairToIndex(
+        const ReduceFunction &reduce_function,
+        size_t size,
+        const ValueType& neutral_element = ValueType(),
+        const ReduceConfig& reduce_config = ReduceConfig()) const;
+
+    template <bool VolatileKeyValue,
+              typename ReduceFunction,
+              typename ReduceConfig = class DefaultReduceToIndexConfig>
+    auto ReducePairToIndex(
+        const VolatileKeyFlag<VolatileKeyValue>&,
+        const ReduceFunction &reduce_function,
+        size_t size,
+        const ValueType& neutral_element = ValueType(),
+        const ReduceConfig& reduce_config = ReduceConfig()) const;
+
     /*!
      * GroupByKey is a DOp, which groups elements of the DIA by its key.
      * After having grouped all elements of one key, all elements of one key

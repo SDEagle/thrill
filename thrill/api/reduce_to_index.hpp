@@ -315,6 +315,81 @@ auto DIA<ValueType, Stack>::ReduceToIndex(
     return DIA<DOpResult>(node);
 }
 
+/******************************************************************************/
+// ReducePairToIndex
+
+template <typename ValueType, typename Stack>
+template <typename ReduceFunction, typename ReduceConfig>
+auto DIA<ValueType, Stack>::ReducePairToIndex(
+    const ReduceFunction &reduce_function,
+    size_t size,
+    const ValueType &neutral_element,
+    const ReduceConfig &reduce_config) const {
+    // forward to main function
+    return ReducePairToIndex(NoVolatileKeyTag,
+                      reduce_function, size, neutral_element, reduce_config);
+}
+
+template <typename ValueType, typename Stack>
+template <bool VolatileKeyValue,
+          typename ReduceFunction, typename ReduceConfig>
+auto DIA<ValueType, Stack>::ReducePairToIndex(
+    const VolatileKeyFlag<VolatileKeyValue>&,
+    const ReduceFunction &reduce_function,
+    size_t size,
+    const ValueType &neutral_element,
+    const ReduceConfig &reduce_config) const {
+    assert(IsValid());
+
+    static_assert(common::is_std_pair<ValueType>::value,
+                  "ValueType is not a pair");
+
+    static_assert(
+        std::is_convertible<
+            typename ValueType::second_type,
+            typename common::FunctionTraits<ReduceFunction>::template arg<0>
+            >::value,
+        "ReduceFunction has the wrong input type");
+
+    static_assert(
+        std::is_convertible<
+            typename ValueType::second_type,
+            typename common::FunctionTraits<ReduceFunction>::template arg<1>
+            >::value,
+        "ReduceFunction has the wrong input type");
+
+    static_assert(
+        std::is_same<
+            typename ValueType::second_type,
+            typename common::FunctionTraits<ReduceFunction>::result_type>::value,
+        "ReduceFunction has the wrong output type");
+
+    static_assert(
+        std::is_convertible<
+            typename ValueType::first_type,
+            size_t>::value,
+        "First pair element has to be convertable to an unsigned long int (aka. size_t).");
+
+    auto key_extractor = [size](const ValueType& value) -> size_t {
+        return value.first;
+    };
+
+    auto reduce_pair_function =
+        [reduce_function](const ValueType& a, const ValueType& b) {
+            return ValueType(a.first, reduce_function(a.second, b.second));
+        };
+
+    using ReduceNode = ReduceToIndexNode<
+              ValueType, decltype(key_extractor), decltype(reduce_pair_function),
+              ReduceConfig, VolatileKeyValue>;
+
+    auto node = common::MakeCounting<ReduceNode>(
+        *this, "ReducePairToIndex", key_extractor, reduce_pair_function,
+        size, neutral_element, reduce_config);
+
+    return DIA<ValueType>(node);
+}
+
 } // namespace api
 } // namespace thrill
 
