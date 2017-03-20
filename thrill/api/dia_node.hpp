@@ -137,7 +137,12 @@ public:
 
         bool consume = context().consume() && consume_counter() == 0;
         PushData(consume);
-        if (consume) Dispose();
+        if (consume) {
+            if (context_.my_rank() == 0) {
+                sLOGC(context_.mem_config().verbose_) << "Dispose()  stage" << *this;
+            }
+            Dispose();
+        }
 
         for (const Child& child : children_)
             child.node->StopPreOp(child.parent_index);
