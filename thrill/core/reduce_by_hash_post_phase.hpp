@@ -152,7 +152,7 @@ public:
 
         while (remaining_files.size())
         {
-            sLOG << "ReducePostPhase: re-reducing items from"
+            sLOG1 << "ReducePostPhase: re-reducing items from"
                  << remaining_files.size() << "spilled files"
                  << "iteration" << iteration;
             sLOG << "-- Try to increase the amount of RAM to avoid this.";
