@@ -248,8 +248,9 @@ public:
         return MakeTableItem::GetKey(t, key_extractor_);
     }
 
-    TableItem reduce(const TableItem& a, const TableItem& b) {
-        return MakeTableItem::Reduce(a, b, reduce_function_);
+    template<class T>
+    TableItem reduce(T&& a, const TableItem& b) {
+        return MakeTableItem::Reduce(std::forward<T>(a), b, reduce_function_);
     }
 
     //! \}

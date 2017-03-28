@@ -204,7 +204,7 @@ public:
                 sentinel_partition_ = h.partition_id;
             }
             else {
-                sentinel = reduce(sentinel, kv);
+                sentinel = reduce(std::move(sentinel), kv);
                 return false;
             }
             ++items_per_partition_[h.partition_id];
@@ -232,7 +232,7 @@ public:
         {
             if (key_equal_function_(key(*iter), key(kv)))
             {
-                *iter = reduce(*iter, kv);
+                *iter = reduce(std::move(*iter), kv);
                 return false;
             }
 

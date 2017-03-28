@@ -170,10 +170,10 @@ public:
         return key_extractor(t);
     }
 
-    template <typename ReduceFunction>
-    static auto Reduce(const TableItem &a, const TableItem &b,
+    template <typename ReduceFunction, class T>
+    static auto Reduce(T&& a, const TableItem &b,
                        ReduceFunction & reduce_function) {
-        return reduce_function(a, b);
+        return reduce_function(std::forward<T>(a), b);
     }
 
     template <typename Emitter>
@@ -196,10 +196,10 @@ public:
         return t.first;
     }
 
-    template <typename ReduceFunction>
-    static auto Reduce(const TableItem &a, const TableItem &b,
+    template <typename ReduceFunction, class T>
+    static auto Reduce(T&& a, const TableItem &b,
                        ReduceFunction & reduce_function) {
-        return TableItem(a.first, reduce_function(a.second, b.second));
+        return TableItem(a.first, reduce_function(std::forward<T>(a), b.second));
     }
 
     template <typename Emitter>
