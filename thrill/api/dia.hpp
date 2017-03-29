@@ -1424,6 +1424,53 @@ public:
                       const size_t size,
                       const ValueOut& neutral_element = ValueOut()) const;
 
+    // template <typename ValueOut,
+    //           typename KeyExtractor, typename FoldFunction,
+    //           typename FoldConfig = class DefaultFoldConfig>
+    // auto FoldByKey(
+    //     const KeyExtractor &key_extractor,
+    //     const FoldFunction &fold_function,
+    //     const FoldConfig& fold_config = FoldConfig()) const;
+
+    // template <typename ValueOut,
+    //           typename KeyExtractor, typename FoldFunction,
+    //           typename FoldConfig, typename KeyHashFunction>
+    // auto FoldByKey(
+    //     const KeyExtractor &key_extractor,
+    //     const FoldFunction &fold_function,
+    //     const FoldConfig &fold_config,
+    //     const KeyHashFunction &key_hash_function) const;
+
+    // template <typename ValueOut,
+    //           typename KeyExtractor, typename FoldFunction,
+    //           typename FoldConfig = class DefaultFoldConfig,
+    //           typename KeyHashFunction =
+    //               std::hash<typename FunctionTraits<KeyExtractor>::result_type>,
+    //           typename KeyEqualFunction =
+    //               std::equal_to<typename FunctionTraits<KeyExtractor>::result_type> >
+    // auto FoldByKey(
+    //     const KeyExtractor &key_extractor,
+    //     const FoldFunction &fold_function,
+    //     const FoldConfig& fold_config = FoldConfig(),
+    //     const KeyHashFunction& key_hash_function = KeyHashFunction(),
+    //     const KeyEqualFunction& key_equal_function = KeyEqualFunction()) const;
+
+    template <typename ValueOut,
+              bool DuplicateDetectionValue,
+              typename KeyExtractor, typename FoldFunction,
+              typename FoldConfig = class DefaultFoldConfig,
+              typename KeyHashFunction =
+                  std::hash<typename FunctionTraits<KeyExtractor>::result_type>,
+              typename KeyEqualFunction =
+                  std::equal_to<typename FunctionTraits<KeyExtractor>::result_type> >
+    auto FoldByKey(
+        const DuplicateDetectionFlag<DuplicateDetectionValue>&,
+        const KeyExtractor &key_extractor,
+        const FoldFunction &fold_function,
+        const FoldConfig& fold_config = FoldConfig(),
+        const KeyHashFunction& key_hash_function = KeyHashFunction(),
+        const KeyEqualFunction& key_equal_function = KeyEqualFunction()) const;
+
     /*!
      * Zips two DIAs of equal size in style of functional programming by
      * applying zip_function to the i-th elements of both input DIAs to form the
