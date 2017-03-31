@@ -257,22 +257,24 @@ public:
                 << items_per_partition_[h.partition_id] << " >= "
                 << limit_items_per_partition_[h.partition_id]
                 << " among " << partition_size_[h.partition_id];
-            if (!GrowAndRehash(h.partition_id)) {
+            if (GrowAndRehash(h.partition_id)) {
+                return Insert(value);
+            } else {
                 return false;
             }
+        } else {
+            // insert new pair
+            *iter = make(item_key, value);
+
+            // increase counter for partition
+            ++items_per_partition_[h.partition_id];
+            ++num_items_;
         }
-
-        // insert new pair
-        *iter = make(item_key, value);
-
-        // increase counter for partition
-        ++items_per_partition_[h.partition_id];
-        ++num_items_;
 
         return true;
     }
 
-    void Relocate(TableItem&& kv) {
+    void Relocate(TableItem kv) {
 
         Key item_key = key(kv);
 
@@ -295,15 +297,6 @@ public:
             else {
                 assert(false);
                 // sentinel = fold(std::move(sentinel), value);
-                return;
-            }
-            ++items_per_partition_[h.partition_id];
-            ++num_items_;
-
-            while (THRILL_UNLIKELY(
-                       items_per_partition_[h.partition_id] >
-                       limit_items_per_partition_[h.partition_id])) {
-                GrowAndRehash(h.partition_id);
             }
 
             return;
@@ -340,26 +333,8 @@ public:
             }
         }
 
-        if (THRILL_UNLIKELY(
-                   items_per_partition_[h.partition_id] >=
-                   limit_items_per_partition_[h.partition_id])) {
-            LOG << "Grow due to "
-                << items_per_partition_[h.partition_id] << " >= "
-                << limit_items_per_partition_[h.partition_id]
-                << " among " << partition_size_[h.partition_id];
-            if (!GrowAndRehash(h.partition_id)) {
-                return;
-            }
-        }
-
         // insert new pair
         *iter = std::move(kv);
-
-        // increase counter for partition
-        ++items_per_partition_[h.partition_id];
-        ++num_items_;
-
-        return;
     }
 
     //! Deallocate items and memory
@@ -399,31 +374,20 @@ public:
         TableItem* iter = pbegin;
         TableItem* pend = pbegin + old_size;
 
-        // reinsert all elements which go into the second partition
-        for ( ; iter != pend; ++iter) {
-            if (!key_equal_function_(key(*iter), Key())) {
-                typename IndexFunction::Result h = index_function_(
-                    key(*iter), num_partitions_,
-                    num_buckets_per_partition_, num_buckets_);
-                if (h.local_index(partition_size_[partition_id]) >= old_size) {
-                    --items_per_partition_[partition_id];
-                    --num_items_;
-                    TableItem item = std::move(*iter);
-                    new (iter)TableItem();
-                    Relocate(std::move(item));
-                }
-            }
-        }
-
-        iter = pbegin;
-        for ( ; iter != pend; ++iter) {
-            if (!key_equal_function_(key(*iter), Key())) {
-                --items_per_partition_[partition_id];
-                --num_items_;
+        bool passed_first_half = false;
+        bool found_hole = false;
+        while (!passed_first_half || !found_hole) {
+            Key item_key = key(*iter);
+            bool is_empty = key_equal_function_(item_key, Key());
+            if (!is_empty) {
                 TableItem item = std::move(*iter);
                 new (iter)TableItem();
                 Relocate(std::move(item));
             }
+
+            iter++;
+            found_hole = passed_first_half && is_empty;
+            passed_first_half = passed_first_half || iter == pend;
         }
 
 
