@@ -213,7 +213,7 @@ public:
             while (THRILL_UNLIKELY(
                        items_per_partition_[h.partition_id] >
                        limit_items_per_partition_[h.partition_id])) {
-                SpillPartition(h.partition_id);
+                GrowAndRehash(h.partition_id);
             }
 
             return true;
@@ -259,7 +259,7 @@ public:
         while (THRILL_UNLIKELY(
                    items_per_partition_[h.partition_id] >=
                    limit_items_per_partition_[h.partition_id])) {
-            LOG << "Spill due to "
+            LOG << "Grow due to "
                 << items_per_partition_[h.partition_id] << " >= "
                 << limit_items_per_partition_[h.partition_id]
                 << " among " << partition_size_[h.partition_id];
@@ -296,7 +296,10 @@ public:
 
         size_t old_size = partition_size_[partition_id];
         GrowPartition(partition_id);
-        if (partition_size_[partition_id] == old_size) return;
+        if (partition_size_[partition_id] == old_size) {
+            SpillPartition(partition_id);
+            return;
+        }
 
         if (partition_size_[partition_id] % old_size != 0) {
             // in place rehashing won't work properly so we spill rather than
@@ -312,31 +315,22 @@ public:
         TableItem* iter = pbegin;
         TableItem* pend = pbegin + old_size;
 
-        // reinsert all elements which go into the second partition
-        for ( ; iter != pend; ++iter) {
-            if (!key_equal_function_(key(*iter), Key())) {
-                typename IndexFunction::Result h = index_function_(
-                    key(*iter), num_partitions_,
-                    num_buckets_per_partition_, num_buckets_);
-                if (h.local_index(partition_size_[partition_id]) >= old_size) {
-                    --items_per_partition_[partition_id];
-                    --num_items_;
-                    TableItem item = *iter;
-                    new (iter)TableItem();
-                    Insert(item);
-                }
-            }
-        }
-
-        iter = pbegin;
-        for ( ; iter != pend; ++iter) {
-            if (!key_equal_function_(key(*iter), Key())) {
+        bool passed_first_half = false;
+        bool found_hole = false;
+        while (!passed_first_half || !found_hole) {
+            Key item_key = key(*iter);
+            bool is_empty = key_equal_function_(item_key, Key());
+            if (!is_empty) {
                 --items_per_partition_[partition_id];
                 --num_items_;
-                TableItem item = *iter;
+                TableItem item = std::move(*iter);
                 new (iter)TableItem();
                 Insert(item);
             }
+
+            iter++;
+            found_hole = passed_first_half && is_empty;
+            passed_first_half = passed_first_half || iter == pend;
         }
     }
 
