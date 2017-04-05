@@ -15,6 +15,7 @@
 
 #include <thrill/api/context.hpp>
 #include <thrill/core/fold_functional.hpp>
+#include <thrill/core/reduce_functional.hpp>
 
 #include <algorithm>
 #include <functional>
