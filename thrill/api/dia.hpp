@@ -544,6 +544,22 @@ public:
     void Gather(size_t target_id, std::vector<ValueType>* out_vector)  const;
 
     /*!
+     * CollectLocal is an Action, which collects all local data of the DIA into
+     * a vector at each worker.
+     *
+     * \ingroup dia_actions
+     */
+    std::vector<ValueType> CollectLocal() const;
+
+    /*!
+     * CollectLocal is an Action, which collects all local data of the DIA into
+     * a vector at each worker.
+     *
+     * \ingroup dia_actions
+     */
+    void CollectLocal(std::vector<ValueType>* out_vector)  const;
+
+    /*!
      * Select up to sample_size items uniformly at random and return a new
      * DIA<T>.
      */
