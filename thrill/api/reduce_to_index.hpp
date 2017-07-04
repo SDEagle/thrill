@@ -336,7 +336,7 @@ auto DIA<ValueType, Stack>::ReducePairToIndex(
     const ReduceConfig &reduce_config) const {
     assert(IsValid());
 
-    static_assert(common::is_std_pair<ValueType>::value,
+    static_assert(tlx::is_std_pair<ValueType>::value,
                   "ValueType is not a pair");
 
     static_assert(
@@ -378,7 +378,7 @@ auto DIA<ValueType, Stack>::ReducePairToIndex(
               ValueType, decltype(key_extractor), decltype(reduce_pair_function),
               ReduceConfig, VolatileKeyValue>;
 
-    auto node = common::MakeCounting<ReduceNode>(
+    auto node = tlx::make_counting<ReduceNode>(
         *this, "ReducePairToIndex", key_extractor, reduce_pair_function,
         size, neutral_element, reduce_config);
 

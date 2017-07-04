@@ -20,7 +20,6 @@
 #include <thrill/api/dop_node.hpp>
 #include <thrill/common/functional.hpp>
 #include <thrill/common/logger.hpp>
-#include <thrill/common/meta.hpp>
 #include <thrill/common/porting.hpp>
 #include <thrill/core/reduce_by_index_post_phase.hpp>
 #include <thrill/core/reduce_pre_phase.hpp>
@@ -67,7 +66,7 @@ class ReduceToIndexWithoutPrecombineNode final : public DOpNode<ValueType>
     using Key = typename common::FunctionTraits<KeyExtractor>::result_type;
 
     using TableItem =
-              typename common::If<
+              typename std::conditional<
                   VolatileKey, std::pair<Key, ValueType>, ValueType>::type;
 
     static_assert(std::is_same<Key, size_t>::value,
@@ -295,7 +294,7 @@ auto DIA<ValueType, Stack>::ReduceToIndexWithoutPrecombine(
               DOpResult, KeyExtractor, ReduceFunction,
               ReduceConfig, VolatileKeyValue>;
 
-    auto node = common::MakeCounting<ReduceNode>(
+    auto node = tlx::make_counting<ReduceNode>(
         *this, "ReduceToIndexWithoutPrecombine", key_extractor, reduce_function,
         size, neutral_element, reduce_config);
 
@@ -328,7 +327,7 @@ auto DIA<ValueType, Stack>::ReducePairToIndexWithoutPrecombine(
     const ReduceConfig &reduce_config) const {
     assert(IsValid());
 
-    static_assert(common::is_std_pair<ValueType>::value,
+    static_assert(tlx::is_std_pair<ValueType>::value,
                   "ValueType is not a pair");
 
     static_assert(
@@ -370,7 +369,7 @@ auto DIA<ValueType, Stack>::ReducePairToIndexWithoutPrecombine(
               ValueType, decltype(key_extractor), decltype(reduce_pair_function),
               ReduceConfig, VolatileKeyValue>;
 
-    auto node = common::MakeCounting<ReduceNode>(
+    auto node = tlx::make_counting<ReduceNode>(
         *this, "ReducePairToIndexWithoutPrecombine", key_extractor, reduce_pair_function,
         size, neutral_element, reduce_config);
 
