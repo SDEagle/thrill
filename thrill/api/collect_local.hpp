@@ -68,7 +68,7 @@ DIA<ValueType, Stack>::CollectLocal() const {
 
     std::vector<ValueType> output;
 
-    auto node = common::MakeCounting<CollectLocalNode>(
+    auto node = tlx::make_counting<CollectLocalNode>(
         *this, "CollectLocal", &output);
 
     node->RunScope();
@@ -83,7 +83,7 @@ void DIA<ValueType, Stack>::CollectLocal(
 
     using CollectLocalNode = api::CollectLocalNode<ValueType>;
 
-    auto node = common::MakeCounting<CollectLocalNode>(
+    auto node = tlx::make_counting<CollectLocalNode>(
         *this, "CollectLocal", out_vector);
 
     node->RunScope();
