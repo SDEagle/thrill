@@ -20,7 +20,6 @@
 #include <thrill/api/dop_node.hpp>
 #include <thrill/common/functional.hpp>
 #include <thrill/common/logger.hpp>
-#include <thrill/common/meta.hpp>
 #include <thrill/common/porting.hpp>
 #include <thrill/core/fold_by_hash_post_phase.hpp>
 #include <thrill/core/location_detection.hpp>
@@ -412,7 +411,7 @@ auto DIA<ValueType, Stack>::FoldByKey(
               KeyHashFunction, KeyEqualFunction,
               DuplicateDetectionValue>;
 
-    auto node = common::MakeCounting<FoldNode>(
+    auto node = tlx::make_counting<FoldNode>(
         *this, "FoldByKey",
         key_extractor, fold_function, fold_config,
         key_hash_function, key_equal_funtion);
