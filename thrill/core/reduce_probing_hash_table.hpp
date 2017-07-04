@@ -194,7 +194,7 @@ public:
 
         assert(h.partition_id < num_partitions_);
 
-        if (THRILL_UNLIKELY(key_equal_function_(key(kv), Key()))) {
+        if (TLX_UNLIKELY(key_equal_function_(key(kv), Key()))) {
             // handle pairs with sentinel key specially by reducing into last
             // element of items.
             TableItem& sentinel = items_[num_buckets_];
@@ -210,7 +210,7 @@ public:
             ++items_per_partition_[h.partition_id];
             ++num_items_;
 
-            while (THRILL_UNLIKELY(
+            while (TLX_UNLIKELY(
                        items_per_partition_[h.partition_id] >
                        limit_items_per_partition_[h.partition_id])) {
                 GrowAndRehash(h.partition_id);
@@ -239,11 +239,11 @@ public:
             ++iter;
 
             // wrap around if beyond the current partition
-            if (THRILL_UNLIKELY(iter == pend))
+            if (TLX_UNLIKELY(iter == pend))
                 iter = pbegin;
 
             // flush partition and retry, if all slots are reserved
-            if (THRILL_UNLIKELY(iter == begin_iter)) {
+            if (TLX_UNLIKELY(iter == begin_iter)) {
                 GrowAndRehash(h.partition_id);
                 return Insert(kv);
             }
@@ -256,7 +256,7 @@ public:
         ++items_per_partition_[h.partition_id];
         ++num_items_;
 
-        while (THRILL_UNLIKELY(
+        while (TLX_UNLIKELY(
                    items_per_partition_[h.partition_id] >=
                    limit_items_per_partition_[h.partition_id])) {
             LOG << "Grow due to "
@@ -315,38 +315,29 @@ public:
         TableItem* iter = pbegin;
         TableItem* pend = pbegin + old_size;
 
-        // reinsert all elements which go into the second partition
-        for ( ; iter != pend; ++iter) {
-            if (!key_equal_function_(key(*iter), Key())) {
-                typename IndexFunction::Result h = index_function_(
-                    key(*iter), num_partitions_,
-                    num_buckets_per_partition_, num_buckets_);
-                if (h.local_index(partition_size_[partition_id]) >= old_size) {
-                    --items_per_partition_[partition_id];
-                    --num_items_;
-                    TableItem item = *iter;
-                    new (iter)TableItem();
-                    Insert(item);
-                }
-            }
-        }
-
-        iter = pbegin;
-        for ( ; iter != pend; ++iter) {
-            if (!key_equal_function_(key(*iter), Key())) {
+        bool passed_first_half = false;
+        bool found_hole = false;
+        while (!passed_first_half || !found_hole) {
+            Key item_key = key(*iter);
+            bool is_empty = key_equal_function_(item_key, Key());
+            if (!is_empty) {
                 --items_per_partition_[partition_id];
                 --num_items_;
-                TableItem item = *iter;
+                TableItem item = std::move(*iter);
                 new (iter)TableItem();
                 Insert(item);
             }
+
+            iter++;
+            found_hole = passed_first_half && is_empty;
+            passed_first_half = passed_first_half || iter == pend;
         }
     }
 
     //! Grow a partition after a spill or flush (if possible)
     void GrowPartition(size_t partition_id) {
 
-        if (THRILL_UNLIKELY(mem::memory_exceeded)) {
+        if (TLX_UNLIKELY(mem::memory_exceeded)) {
             SpillPartition(partition_id);
             return;
         }
