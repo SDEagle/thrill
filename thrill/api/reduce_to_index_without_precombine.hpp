@@ -132,7 +132,8 @@ public:
     void PreOp(const ValueType& v) {
         const Key k = key_extractor_(v);
         assert(k < result_size_);
-        const size_t recipient = k * emitters_.size() / result_size_;
+        const size_t recipient = common::CalculatePartition(
+            result_size_, context_.num_workers(), k);
         assert(recipient < emitters_.size());
         emitters_[recipient].Put(v);
     }
