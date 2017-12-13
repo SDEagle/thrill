@@ -67,6 +67,9 @@ static constexpr size_t log_operations_threshold = 100000;
 // enable checking of bypass_malloc() and bypass_free() pairing
 #define BYPASS_CHECKER 0
 
+// super-simple and super-slow leak detection
+#define LEAK_CHECKER 0
+
 /******************************************************************************/
 // variables of malloc tracker
 
@@ -78,10 +81,12 @@ static constexpr size_t padding = 16;    /* bytes (>= 2*sizeof(size_t)) */
 using malloc_type = void* (*)(size_t);
 using free_type = void (*)(void*);
 using realloc_type = void* (*)(void*, size_t);
+using aligned_alloc_type = void* (*)(size_t, size_t);
 
 static malloc_type real_malloc = nullptr;
 static free_type real_free = nullptr;
 static realloc_type real_realloc = nullptr;
+static aligned_alloc_type real_aligned_alloc = nullptr;
 
 //! a sentinel value prefixed to each allocation
 static constexpr size_t sentinel = 0xDEADC0DE;
@@ -414,6 +419,8 @@ static __attribute__ ((constructor)) void init() { // NOLINT
         exit(EXIT_FAILURE);
     }
 
+    real_aligned_alloc = (aligned_alloc_type)dlsym(RTLD_NEXT, "aligned_alloc");
+
     real_free = (free_type)dlsym(RTLD_NEXT, "free");
     if (!real_free) {
         fprintf(stderr, PPREFIX "dlerror %s\n", dlerror());
@@ -443,7 +450,6 @@ static std::pair<void*, size_t> s_bypass_checker[kBypassCheckerSize];
 static std::mutex s_bypass_mutex;
 #endif
 
-//! bypass malloc tracker and access malloc() directly
 ATTRIBUTE_NO_SANITIZE
 void * bypass_malloc(size_t size) noexcept {
 #if defined(_MSC_VER)
@@ -484,7 +490,6 @@ void * bypass_malloc(size_t size) noexcept {
     return ptr;
 }
 
-//! bypass malloc tracker and access free() directly
 ATTRIBUTE_NO_SANITIZE
 void bypass_free(void* ptr, size_t size) noexcept {
 
@@ -523,6 +528,106 @@ void bypass_free(void* ptr, size_t size) noexcept {
     return free(ptr);
 #else
     return real_free(ptr);
+#endif
+}
+
+ATTRIBUTE_NO_SANITIZE
+void * bypass_aligned_alloc(size_t alignment, size_t size) noexcept {
+#if defined(_MSC_VER)
+    void* ptr = _aligned_malloc(size, alignment);
+#else
+    void* ptr;
+    if (real_aligned_alloc) {
+        ptr = real_aligned_alloc(alignment, size);
+    }
+    else {
+        // emulate alignment by wasting memory
+        void* mem = real_malloc((alignment - 1) + sizeof(void*) + size);
+
+        uintptr_t uptr = reinterpret_cast<uintptr_t>(mem) + sizeof(void*);
+        uptr += alignment - (uptr & (alignment - 1));
+        ptr = reinterpret_cast<void*>(uptr);
+
+        // store original pointer for deallocation
+        (reinterpret_cast<void**>(ptr))[-1] = mem;
+    }
+#endif
+    if (!ptr) {
+        fprintf(stderr, PPREFIX "bypass_aligned_alloc(%zu align %zu size) = %p   (current %zu / %zu)\n",
+                alignment, size, ptr, get(float_curr), get(base_curr));
+        return ptr;
+    }
+
+#if !defined(NDEBUG) && BYPASS_CHECKER
+    {
+        std::unique_lock<std::mutex> lock(s_bypass_mutex);
+        size_t i;
+        for (i = 0; i < kBypassCheckerSize; ++i) {
+            if (s_bypass_checker[i].first != nullptr) continue;
+            s_bypass_checker[i].first = ptr;
+            s_bypass_checker[i].second = size;
+            break;
+        }
+        if (i == kBypassCheckerSize) abort();
+    }
+#endif
+
+    ssize_t mycurr = sync_add_and_fetch(base_curr, size);
+
+    total_bytes += size;
+    update_peak(float_curr, mycurr);
+
+    sync_add_and_fetch(total_allocs, 1);
+    sync_add_and_fetch(current_allocs, 1);
+
+    update_memprofile(get(float_curr), mycurr);
+
+    return ptr;
+}
+
+ATTRIBUTE_NO_SANITIZE
+void bypass_aligned_free(void* ptr, size_t size) noexcept {
+
+#if !defined(NDEBUG) && BYPASS_CHECKER
+    {
+        std::unique_lock<std::mutex> lock(s_bypass_mutex);
+        size_t i;
+        for (i = 0; i < kBypassCheckerSize; ++i) {
+            if (s_bypass_checker[i].first != ptr) continue;
+
+            if (s_bypass_checker[i].second == size) {
+                s_bypass_checker[i].first = nullptr;
+                break;
+            }
+
+            printf(PPREFIX "bypass_aligned_free() checker: "
+                   "ptr %p size %zu mismatches allocation of %zu\n",
+                   ptr, size, s_bypass_checker[i].second);
+            abort();
+        }
+        if (i == kBypassCheckerSize) {
+            printf(PPREFIX "bypass_aligned_free() checker: "
+                   "ptr = %p size %zu was not found\n", ptr, size);
+            abort();
+        }
+    }
+#endif
+
+    ssize_t mycurr = sync_sub_and_fetch(base_curr, size);
+
+    sync_sub_and_fetch(current_allocs, 1);
+
+    update_memprofile(get(float_curr), mycurr);
+
+#if defined(_MSC_VER)
+    return _aligned_free(ptr);
+#else
+    if (real_aligned_alloc) {
+        return real_free(ptr);
+    }
+    else {
+        real_free((reinterpret_cast<void**>(ptr))[-1]);
+    }
 #endif
 }
 
@@ -643,6 +748,88 @@ static void preinit_free(void* ptr) {
 #endif
 
 /******************************************************************************/
+// Super-simple and Super-Slow Leak Detection
+
+#if LEAK_CHECKER
+static constexpr size_t kLeakCheckerSize = 1024 * 1024;
+static constexpr size_t kLeakCheckerBacktrace = 32;
+struct LeakCheckerEntry {
+    void   * ptr;
+    size_t size;
+    size_t round;
+    void   * addrlist[kLeakCheckerBacktrace];
+};
+static LeakCheckerEntry s_leak_checker[kLeakCheckerSize];
+static std::mutex s_leak_mutex;
+static size_t s_leak_round = 0;
+
+static void leakchecker_malloc(void* ptr, size_t size) {
+    std::unique_lock<std::mutex> lock(s_leak_mutex);
+    size_t i;
+    for (i = 0; i < kLeakCheckerSize; ++i) {
+        if (s_leak_checker[i].ptr != nullptr) continue;
+        s_leak_checker[i].ptr = ptr;
+        s_leak_checker[i].size = size;
+        s_leak_checker[i].round = s_leak_round;
+        // retrieve current stack addresses
+        lock.unlock();
+        backtrace(s_leak_checker[i].addrlist, kLeakCheckerBacktrace);
+        break;
+    }
+    if (i == kLeakCheckerSize) abort();
+}
+
+static void leakchecker_free(void* ptr) {
+    std::unique_lock<std::mutex> lock(s_leak_mutex);
+    size_t i;
+    for (i = 0; i < kLeakCheckerSize; ++i) {
+        if (s_leak_checker[i].ptr == ptr) {
+            s_leak_checker[i].ptr = nullptr;
+            break;
+        }
+    }
+    if (i == kLeakCheckerSize) {
+        printf(PPREFIX "leak_free() checker: "
+               "ptr = %p was not found\n", ptr);
+        // abort();
+    }
+}
+#endif
+
+namespace thrill {
+namespace mem {
+
+void malloc_tracker_print_leaks() {
+#if LEAK_CHECKER
+    std::unique_lock<std::mutex> lock(s_leak_mutex);
+    for (size_t i = 0; i < kLeakCheckerSize; ++i) {
+        if (s_leak_checker[i].ptr == nullptr) continue;
+
+        if (s_leak_checker[i].round == s_leak_round) {
+            void** addrlist = s_leak_checker[i].addrlist;
+            printf(PPREFIX "leak checker: "
+                   "ptr %p size %zu new unfreed allocation: "
+                   "%p %p %p %p %p %p %p %p %p %p %p %p %p %p %p %p "
+                   "%p %p %p %p %p %p %p %p %p %p %p %p %p %p %p %p\n",
+                   s_leak_checker[i].ptr, s_leak_checker[i].size,
+                   addrlist[0], addrlist[1], addrlist[2], addrlist[3],
+                   addrlist[4], addrlist[5], addrlist[6], addrlist[7],
+                   addrlist[8], addrlist[9], addrlist[10], addrlist[11],
+                   addrlist[12], addrlist[13], addrlist[14], addrlist[15],
+                   addrlist[16], addrlist[17], addrlist[18], addrlist[19],
+                   addrlist[20], addrlist[21], addrlist[22], addrlist[23],
+                   addrlist[24], addrlist[25], addrlist[26], addrlist[27],
+                   addrlist[28], addrlist[29], addrlist[30], addrlist[31]);
+        }
+    }
+    ++s_leak_round;
+#endif
+}
+
+} // namespace mem
+} // namespace thrill
+
+/******************************************************************************/
 
 #if defined(MALLOC_USABLE_SIZE)
 
@@ -701,6 +888,17 @@ void * malloc(size_t size) NOEXCEPT {
 #endif
     }
 
+    {
+#if LEAK_CHECKER
+        static thread_local bool recursive = false;
+        if (!recursive) {
+            recursive = true;
+            leakchecker_malloc(ret, size);
+            recursive = false;
+        }
+#endif
+    }
+
     return ret;
 }
 
@@ -730,6 +928,10 @@ void free(void* ptr) NOEXCEPT {
         fprintf(stderr, PPREFIX "free(%p) -> %zu   (current %zu / %zu)\n",
                 ptr, size_used, get(float_curr), get(base_curr));
     }
+
+#if LEAK_CHECKER
+    leakchecker_free(ptr);
+#endif
 
     (*real_free)(ptr);
 }

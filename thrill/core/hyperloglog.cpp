@@ -17,7 +17,7 @@
 #include <thrill/net/buffer_builder.hpp>
 #include <thrill/net/buffer_reader.hpp>
 
-#include <limits.h>
+#include <climits>
 #include <limits>
 
 namespace thrill {
@@ -1927,6 +1927,8 @@ Serialization<Archive, core::HyperLogLogRegisters<p> >::Deserialize(Archive& ar)
     return out;
 }
 
+#ifndef THRILL_DOXYGEN_IGNORE
+
 // make serialization instantiations
 #define MAKE_INSTANTIATIONS(X)                                              \
     template void Serialization<                                            \
@@ -1952,6 +1954,8 @@ MAKE_INSTANTIATIONS(15)
 MAKE_INSTANTIATIONS(16)
 MAKE_INSTANTIATIONS(17)
 MAKE_INSTANTIATIONS(18)
+
+#endif  // THRILL_DOXYGEN_IGNORE
 
 } // namespace data
 } // namespace thrill

@@ -666,7 +666,7 @@ public:
     /*!
      * Compute the approximate number of distinct elements in the DIA.
      *
-     * \param p Number of bits to use for index. Should be between 4 and 16.
+     * \tparam p Number of bits to use for index. Should be between 4 and 16.
      * \ingroup dia_actions
      */
     template <size_t p>
@@ -911,7 +911,7 @@ public:
      * DIA consists of the PostOp of Reduce, as a reduced element can directly
      * be chained to the following LOps.
      *
-     * \param volatile_key_tag tag
+     * \param volatile_key_flag tag
      *
      * \param key_extractor Key extractor function, which maps each element to a
      * key of possibly different type.
@@ -961,7 +961,7 @@ public:
      * DIA consists of the PostOp of Reduce, as a reduced element can directly
      * be chained to the following LOps.
      *
-     * \param volatile_key_tag tag
+     * \param duplicate_detection_flag tag
      *
      * \param key_extractor Key extractor function, which maps each element to a
      * key of possibly different type.

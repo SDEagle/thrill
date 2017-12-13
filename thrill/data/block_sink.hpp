@@ -33,6 +33,11 @@ public:
         : block_pool_(&block_pool), local_worker_id_(local_worker_id)
     { }
 
+    //! constructor with reference to BlockPool
+    explicit BlockSink(BlockPool* block_pool, size_t local_worker_id)
+        : block_pool_(block_pool), local_worker_id_(local_worker_id)
+    { }
+
     //! default copy-constructor
     BlockSink(const BlockSink&) = default;
     //! default assignment operator
@@ -79,11 +84,6 @@ public:
 
     //! Appends the (unpinned) Block
     virtual void AppendBlock(Block&& b, bool is_last_block) = 0;
-
-    //! Appends the PinnedBlock
-    virtual void AppendPinnedBlock(const PinnedBlock& b, bool is_last_block) {
-        return AppendBlock(b.ToBlock(), is_last_block);
-    }
 
     //! Appends the PinnedBlock
     virtual void AppendPinnedBlock(PinnedBlock&& b, bool is_last_block) {

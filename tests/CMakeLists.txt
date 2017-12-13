@@ -91,6 +91,7 @@ thrill_build_test_group(common/tests
   common/matrix_test.cpp
   common/qsort_test.cpp
   common/radix_sort_test.cpp
+  common/reservoir_sampling_test.cpp
   common/splay_tree_test.cpp
   common/stats_counter_test.cpp
   common/stats_timer_test.cpp
@@ -174,10 +175,10 @@ thrill_build_test(core/reduce_pre_phase_test)
 thrill_build_test(core/multiway_merge_test)
 
 thrill_build_test(api/groupby_node_test)
+thrill_build_test(api/hyperloglog_test)
 thrill_build_test(api/join_test)
 thrill_build_test(api/merge_node_test)
 thrill_build_test(api/operations_test)
-thrill_build_test(api/hyperloglog_test)
 thrill_build_test(api/read_write_test)
 thrill_build_test(api/reduce_node_test)
 thrill_build_test(api/sort_node_test)

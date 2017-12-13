@@ -48,6 +48,12 @@ void * bypass_malloc(size_t size) noexcept;
 //! bypass malloc tracker and access free() directly
 void bypass_free(void* ptr, size_t size) noexcept;
 
+//! bypass malloc tracker and access aligned_alloc() directly
+void * bypass_aligned_alloc(size_t alignment, size_t size) noexcept;
+
+//! bypass malloc tracker and access aligned_alloc() directly
+void bypass_aligned_free(void* ptr, size_t size) noexcept;
+
 //! returns the currently allocated amount of memory
 ssize_t malloc_tracker_current();
 
@@ -62,6 +68,9 @@ ssize_t malloc_tracker_total_allocs();
 
 //! user function which prints current and peak allocation to stderr
 void malloc_tracker_print_status();
+
+//! user function which prints new unfreed areas to stdout since the last call
+void malloc_tracker_print_leaks();
 
 //! launch profiler task
 void StartMemProfiler(common::ProfileThread& sched, common::JsonLogger& logger);

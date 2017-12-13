@@ -8,6 +8,10 @@ add_definitions(-DLIBS3_VER_MAJOR="2")
 add_definitions(-DLIBS3_VER_MINOR="0")
 add_definitions(-DLIBS3_VER="2.0")
 
+# remove -Werror as gcc7 shows some upstream warnings
+string(REGEX REPLACE "-Werror" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+string(REGEX REPLACE "-Werror" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+
 # find packages
 find_package(CURL REQUIRED)
 include_directories(SYSTEM ${CURL_INCLUDE_DIRS})
@@ -25,8 +29,8 @@ endif()
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/libs3/inc/")
 
 set(LIBS3_SOURCES
-  libs3/src/acl.c
   libs3/src/bucket.c
+  libs3/src/bucket_metadata.c
   libs3/src/error_parser.c
   libs3/src/general.c
   libs3/src/multipart.c

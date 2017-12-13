@@ -20,7 +20,7 @@
 #include <tlx/math/round_to_power_of_two.hpp>
 
 #include <algorithm>
-#include <map>
+#include <unordered_map>
 #include <vector>
 
 namespace thrill {
@@ -89,15 +89,25 @@ public:
         die("object " + std::to_string(object_id) + " not in repository");
     }
 
+    //! Remove id from map
+    void EraseOrDie(Id object_id) {
+        auto it = map_.find(object_id);
+        if (it != map_.end()) {
+            map_.erase(it);
+            return;
+        }
+        die("object " + std::to_string(object_id) + " not in repository");
+    }
+
     //! return mutable reference to map of objects.
-    std::map<Id, ObjectPtr>& map() { return map_; }
+    std::unordered_map<Id, ObjectPtr>& map() { return map_; }
 
 private:
     //! Next ID to generate, one for each local worker.
     std::vector<size_t> next_id_;
 
     //! map containing value items
-    std::map<Id, ObjectPtr> map_;
+    std::unordered_map<Id, ObjectPtr> map_;
 };
 
 /******************************************************************************/
@@ -118,7 +128,7 @@ Multiplexer::Multiplexer(mem::Manager& mem_manager,
       block_pool_(block_pool),
       dispatcher_(
           mem_manager, group,
-          "host " + mem::to_string(group.my_host_rank()) + " multiplexer"),
+          "host " + mem::to_string(group.my_host_rank()) + " dispatcher"),
       group_(group),
       workers_per_host_(workers_per_host),
       d_(std::make_unique<Data>(workers_per_host)) {
@@ -126,13 +136,19 @@ Multiplexer::Multiplexer(mem::Manager& mem_manager,
         if (id == group_.my_host_rank()) continue;
         AsyncReadMultiplexerHeader(group_.connection(id));
     }
-    (void)mem_manager_;     // silence unused variable warning.
 }
 
 void Multiplexer::Close() {
-    // close all still open Streams
-    for (auto& ch : d_->stream_sets_.map())
-        ch.second->Close();
+    std::unique_lock<std::mutex> lock(mutex_);
+
+    if (!d_->stream_sets_.map().empty()) {
+        LOG1 << "Multiplexer::Close()"
+             << " remaining_streams=" << d_->stream_sets_.map().size();
+        die_unless(d_->stream_sets_.map().empty());
+    }
+
+    // destroy all still open Streams
+    d_->stream_sets_.map().clear();
 
     // terminate dispatcher, this waits for unfinished AsyncWrites.
     dispatcher_.Terminate();
@@ -152,24 +168,25 @@ size_t Multiplexer::AllocateCatStreamId(size_t local_worker_id) {
     return d_->stream_sets_.AllocateId(local_worker_id);
 }
 
-CatStreamPtr Multiplexer::GetOrCreateCatStream(
+CatStreamDataPtr Multiplexer::GetOrCreateCatStreamData(
     size_t id, size_t local_worker_id, size_t dia_id) {
     std::unique_lock<std::mutex> lock(mutex_);
-    return IntGetOrCreateCatStream(id, local_worker_id, dia_id);
+    return IntGetOrCreateCatStreamData(id, local_worker_id, dia_id);
 }
 
 CatStreamPtr Multiplexer::GetNewCatStream(size_t local_worker_id, size_t dia_id) {
     std::unique_lock<std::mutex> lock(mutex_);
-    return IntGetOrCreateCatStream(
-        d_->stream_sets_.AllocateId(local_worker_id), local_worker_id, dia_id);
+    return tlx::make_counting<CatStream>(
+        IntGetOrCreateCatStreamData(
+            d_->stream_sets_.AllocateId(local_worker_id),
+            local_worker_id, dia_id));
 }
 
-CatStreamPtr Multiplexer::IntGetOrCreateCatStream(
+CatStreamDataPtr Multiplexer::IntGetOrCreateCatStreamData(
     size_t id, size_t local_worker_id, size_t dia_id) {
-    CatStreamSetPtr set =
+    CatStreamDataPtr ptr =
         d_->stream_sets_.GetOrCreate<CatStreamSet>(
-            id, *this, id, workers_per_host_, dia_id);
-    CatStreamPtr ptr = set->peer(local_worker_id);
+            id, *this, id, workers_per_host_, dia_id)->Peer(local_worker_id);
     // update dia_id: the stream may have been created before the DIANode
     // associated with it.
     if (ptr->dia_id_ == 0)
@@ -182,29 +199,58 @@ size_t Multiplexer::AllocateMixStreamId(size_t local_worker_id) {
     return d_->stream_sets_.AllocateId(local_worker_id);
 }
 
-MixStreamPtr Multiplexer::GetOrCreateMixStream(
+MixStreamDataPtr Multiplexer::GetOrCreateMixStreamData(
     size_t id, size_t local_worker_id, size_t dia_id) {
     std::unique_lock<std::mutex> lock(mutex_);
-    return IntGetOrCreateMixStream(id, local_worker_id, dia_id);
+    return IntGetOrCreateMixStreamData(id, local_worker_id, dia_id);
 }
 
 MixStreamPtr Multiplexer::GetNewMixStream(size_t local_worker_id, size_t dia_id) {
     std::unique_lock<std::mutex> lock(mutex_);
-    return IntGetOrCreateMixStream(
-        d_->stream_sets_.AllocateId(local_worker_id), local_worker_id, dia_id);
+    return tlx::make_counting<MixStream>(
+        IntGetOrCreateMixStreamData(
+            d_->stream_sets_.AllocateId(local_worker_id),
+            local_worker_id, dia_id));
 }
 
-MixStreamPtr Multiplexer::IntGetOrCreateMixStream(
+MixStreamDataPtr Multiplexer::IntGetOrCreateMixStreamData(
     size_t id, size_t local_worker_id, size_t dia_id) {
-    MixStreamSetPtr set =
+    MixStreamDataPtr ptr =
         d_->stream_sets_.GetOrCreate<MixStreamSet>(
-            id, *this, id, workers_per_host_, dia_id);
-    MixStreamPtr ptr = set->peer(local_worker_id);
+            id, *this, id, workers_per_host_, dia_id)->Peer(local_worker_id);
     // update dia_id: the stream may have been created before the DIANode
     // associated with it.
     if (ptr->dia_id_ == 0)
         ptr->set_dia_id(dia_id);
     return ptr;
+}
+
+void Multiplexer::IntReleaseCatStream(size_t id, size_t local_worker_id) {
+
+    tlx::CountingPtr<CatStreamSet> set =
+        d_->stream_sets_.GetOrDie<CatStreamSet>(id);
+
+    sLOG << "Multiplexer::IntReleaseCatStream() release"
+         << "stream" << id << "local_worker_id" << local_worker_id;
+
+    if (set->Release(local_worker_id)) {
+        LOG << "Multiplexer::IntReleaseCatStream() destroy stream " << id;
+        d_->stream_sets_.EraseOrDie(id);
+    }
+}
+
+void Multiplexer::IntReleaseMixStream(size_t id, size_t local_worker_id) {
+
+    tlx::CountingPtr<MixStreamSet> set =
+        d_->stream_sets_.GetOrDie<MixStreamSet>(id);
+
+    sLOG << "Multiplexer::IntReleaseMixStream() release"
+         << "stream" << id << "local_worker_id" << local_worker_id;
+
+    if (set->Release(local_worker_id)) {
+        LOG << "Multiplexer::IntReleaseMixStream() destroy stream " << id;
+        d_->stream_sets_.EraseOrDie(id);
+    }
 }
 
 common::JsonLogger& Multiplexer::logger() {
@@ -249,7 +295,7 @@ void Multiplexer::OnMultiplexerHeader(Connection& s, net::Buffer&& buffer) {
 
     if (header.magic == MagicByte::CatStreamBlock)
     {
-        CatStreamPtr stream = GetOrCreateCatStream(
+        CatStreamDataPtr stream = GetOrCreateCatStreamData(
             id, local_worker, /* dia_id (unknown at this time) */ 0);
         stream->rx_net_bytes_ += buffer.size();
 
@@ -268,6 +314,7 @@ void Multiplexer::OnMultiplexerHeader(Connection& s, net::Buffer&& buffer) {
 
             PinnedByteBlockPtr bytes = block_pool_.AllocateByteBlock(
                 alloc_size, local_worker);
+            sLOG << "new PinnedByteBlockPtr bytes=" << *bytes;
 
             dispatcher_.AsyncRead(
                 s, header.size, std::move(bytes),
@@ -278,7 +325,7 @@ void Multiplexer::OnMultiplexerHeader(Connection& s, net::Buffer&& buffer) {
     }
     else if (header.magic == MagicByte::MixStreamBlock)
     {
-        MixStreamPtr stream = GetOrCreateMixStream(
+        MixStreamDataPtr stream = GetOrCreateMixStreamData(
             id, local_worker, /* dia_id (unknown at this time) */ 0);
         stream->rx_net_bytes_ += buffer.size();
 
@@ -312,10 +359,10 @@ void Multiplexer::OnMultiplexerHeader(Connection& s, net::Buffer&& buffer) {
 
 void Multiplexer::OnCatStreamBlock(
     Connection& s, const StreamMultiplexerHeader& header,
-    const CatStreamPtr& stream, PinnedByteBlockPtr&& bytes) {
+    const CatStreamDataPtr& stream, PinnedByteBlockPtr&& bytes) {
 
     sLOG << "Multiplexer::OnCatStreamBlock()"
-         << "got block on" << s
+         << "got block" << *bytes << "on" << s
          << "in CatStream" << header.stream_id
          << "from worker" << header.sender_worker;
 
@@ -333,10 +380,10 @@ void Multiplexer::OnCatStreamBlock(
 
 void Multiplexer::OnMixStreamBlock(
     Connection& s, const StreamMultiplexerHeader& header,
-    const MixStreamPtr& stream, PinnedByteBlockPtr&& bytes) {
+    const MixStreamDataPtr& stream, PinnedByteBlockPtr&& bytes) {
 
     sLOG << "Multiplexer::OnMixStreamBlock()"
-         << "got block on" << s
+         << "got block" << *bytes << "on" << s
          << "in MixStream" << header.stream_id
          << "from worker" << header.sender_worker;
 
@@ -352,18 +399,18 @@ void Multiplexer::OnMixStreamBlock(
     AsyncReadMultiplexerHeader(s);
 }
 
-BlockQueue* Multiplexer::CatLoopback(
-    size_t stream_id, size_t from_worker_id, size_t to_worker_id) {
+CatStreamDataPtr Multiplexer::CatLoopback(
+    size_t stream_id, size_t to_worker_id) {
     std::unique_lock<std::mutex> lock(mutex_);
     return d_->stream_sets_.GetOrDie<CatStreamSet>(stream_id)
-           ->peer(to_worker_id)->loopback_queue(from_worker_id);
+           ->Peer(to_worker_id);
 }
 
-MixBlockQueueSink* Multiplexer::MixLoopback(
-    size_t stream_id, size_t from_worker_id, size_t to_worker_id) {
+MixStreamDataPtr Multiplexer::MixLoopback(
+    size_t stream_id, size_t to_worker_id) {
     std::unique_lock<std::mutex> lock(mutex_);
     return d_->stream_sets_.GetOrDie<MixStreamSet>(stream_id)
-           ->peer(to_worker_id)->loopback_queue(from_worker_id);
+           ->Peer(to_worker_id);
 }
 
 } // namespace data
